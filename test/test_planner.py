@@ -1,14 +1,13 @@
 import pytest
 
-from foreman.types import (
-    SystemState, 
-    Component, 
-    SystemGoal, 
-    ControllerDependencyRule, 
-    ComponentType,
-    LifecycleState
-)
 from foreman.planner import Planner
+from foreman.types import Component
+from foreman.types import ComponentType
+from foreman.types import ControllerDependencyRule
+from foreman.types import LifecycleState
+from foreman.types import SystemGoal
+from foreman.types import SystemState
+
 
 @pytest.fixture
 def planner():
@@ -28,7 +27,7 @@ def test_hardware_progression_one_step(planner):
             "franka_hw": Component("franka_hw", ComponentType.HARDWARE, LifecycleState.UNCONFIGURED)
         }
     )
-    
+
     # Goal is ACTIVE, but it should only step to INACTIVE first.
     goal = SystemGoal(
         name="test_goal",
@@ -40,7 +39,7 @@ def test_hardware_progression_one_step(planner):
     assert len(commands) == 1
     assert commands[0].component.name == "franka_hw"
     assert commands[0].goal_state == LifecycleState.INACTIVE
-    
+
 
 def test_controller_transition_blocked_by_hardware(planner):
     """Test that a controller will NOT transition to ACTIVE if its hardware is not ACTIVE."""
@@ -52,7 +51,7 @@ def test_controller_transition_blocked_by_hardware(planner):
             "franka_jtc": Component("franka_jtc", ComponentType.CONTROLLER, LifecycleState.INACTIVE)
         }
     )
-    
+
     goal = SystemGoal(
         name="running",
         hardware_goals=[Component("franka_hw", ComponentType.HARDWARE, LifecycleState.ACTIVE)],
@@ -78,7 +77,7 @@ def test_controller_allowed_when_hardware_ready(planner):
             "franka_jtc": Component("franka_jtc", ComponentType.CONTROLLER, LifecycleState.INACTIVE)
         }
     )
-    
+
     goal = SystemGoal(
         name="running",
         hardware_goals=[Component("franka_hw", ComponentType.HARDWARE, LifecycleState.ACTIVE)],
@@ -107,7 +106,7 @@ def test_step_down_ladder(planner):
     )
 
     commands = planner.calculate_transitions(current, goal)
-    
+
     assert len(commands) == 1
     assert commands[0].component.name == "kassow"
     assert commands[0].goal_state == LifecycleState.INACTIVE

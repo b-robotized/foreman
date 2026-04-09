@@ -10,6 +10,7 @@ class ComponentType(Enum):
     HARDWARE = "hardware"
     CONTROLLER = "controller"
 
+
 class LifecycleState(Enum):
     """
     ROS 2 control component lifecycle sequence.
@@ -47,6 +48,7 @@ class LifecycleState(Enum):
         else:
             return sequence[index_current - 1]
 
+
 @dataclass
 class Component:
     """A single hardware interface or a controller we are managing."""
@@ -55,11 +57,13 @@ class Component:
     component_type: ComponentType
     lifecycle_state: LifecycleState
 
+
 @dataclass
 class SystemState:
     """Current state of the control system. Populated from ControllerManager::Activity message."""
 
     components: Dict[str, Component] = field(default_factory=dict)
+
 
 @dataclass
 class ControllerDependencyRule:
@@ -68,6 +72,7 @@ class ControllerDependencyRule:
     controller_name: str
     required_hardware: List[str]
 
+
 @dataclass
 class SystemGoal:
     """Named system goal state. Populated from YAML."""
@@ -75,6 +80,7 @@ class SystemGoal:
     name: str
     hardware_goals: List[Component] = field(default_factory=list)
     controller_goals: List[Component] = field(default_factory=list)
+
 
 @dataclass
 class SystemTransitionCommand:
