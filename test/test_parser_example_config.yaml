@@ -1,0 +1,44 @@
+controller_manager: b_controlled_box_cm
+
+transition_pause: 0.5
+
+hardware:
+  - FrankaHardwareInterface
+  - kassow
+
+controllers:
+  joint_state_broadcaster:
+    requires: [all, inactive]
+  kassow_joint_trajectory_controller:
+    requires: [kassow, active]
+  franka_joint_trajectory_controller:
+    requires: [FrankaHardwareInterface, active]
+
+goal_states:
+
+  idle:
+    controllers:
+      joint_state_broadcaster: inactive
+      kassow_joint_trajectory_controller: inactive
+      franka_joint_trajectory_controller: inactive
+    hardware:
+      FrankaHardwareInterface: inactive
+      kassow: inactive
+
+  broadcast_only:
+    controllers:
+      joint_state_broadcaster: active
+      kassow_joint_trajectory_controller: inactive
+      franka_joint_trajectory_controller: inactive
+    hardware:
+      FrankaHardwareInterface: active
+      kassow: active
+
+  running:
+    controllers:
+      joint_state_broadcaster: active
+      kassow_joint_trajectory_controller: active
+      franka_joint_trajectory_controller: active
+    hardware:
+      FrankaHardwareInterface: active
+      kassow: active

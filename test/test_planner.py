@@ -8,6 +8,8 @@ from foreman.types import LifecycleState
 from foreman.types import SystemGoal
 from foreman.types import SystemState
 from foreman.types import SystemTransitionCommand
+from foreman.types import HardwareRequirement
+
 
 @pytest.fixture
 def basic_planner():
