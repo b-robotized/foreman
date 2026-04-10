@@ -76,8 +76,7 @@ class Component:
 @dataclass
 class SystemState:
     """Current state of the control system. Populated from ControllerManager::Activity msg."""
-
-    # TODO: add a 'name' field, for when we do named states, if we reached a named state?
+    
     components: Dict[str, Component] = field(default_factory=dict)
 
 

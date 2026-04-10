@@ -29,6 +29,12 @@ class ForemanEngine:
         self._current_goal = config.goals.get('broadcast_only')
         self._is_ready = False # when we get first /activity reading
 
+    @property
+    def is_at_goal(self) -> bool:
+        """Checks if there are any remaining transitions to reach the goal."""
+        with self._state_lock:
+            return self._is_at_goal();
+
     def request_goal(self, goal_name: str) -> Tuple[bool, str]:
         """
         Request a new goal for the system
@@ -39,6 +45,10 @@ class ForemanEngine:
             return False, f"Goal '{goal_name}' not found in configuration."
         
         with self._state_lock:
+            if self._current_goal == goal:
+                if self._is_at_goal():
+                    return True, f"Already at goal '{goal_name}'."
+                return True, f"Already transitioning to '{goal_name}'."
             self._current_goal = goal
         
         # TODO: ok for now, but do we return more informative error structs for frontends?
@@ -83,11 +93,24 @@ class ForemanEngine:
             return {
                 "goal": self.current_goal_name,
                 "ready": self._is_ready,
+                "at_goal": self._is_at_goal(),
                 "components": {
                     name: comp.lifecycle_state.name 
                     for name, comp in self._state.components.items()
                 }
             }
+
+    def _is_at_goal(self) -> bool:
+        """
+        Checks if the current goal is reached.
+        MUST be called while holding self._state_lock!
+        """
+        if not self._is_ready or not self._current_goal:
+            return False
+        
+        # If planner returns no commands, we have reached the goal state
+        transitions = self._planner.calculate_transitions(self._state, self._current_goal)
+        return len(transitions) == 0
 
     def _any_goal_components_missing(self) -> bool:
         """Checks if all components in the goal are present in current state."""

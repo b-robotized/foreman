@@ -54,6 +54,11 @@ class ForemanNode(Node):
 
         # ADAPTERS TO THE REST OF ROS ==============================
 
+        self.set_goal_server = Adapters.ROS.SetGoalServer(
+            node=self, 
+            engine=self.engine
+        )
+
         # MAIN LOOP ================================================
 
         # RUN everything at 10HZ
