@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from foreman.types import Component
 from foreman.types import ComponentType
@@ -15,64 +15,100 @@ class Planner:
     def __init__(self, dependency_rules: List[ControllerDependencyRule]):
         self.rules = {rule.controller_name: rule for rule in dependency_rules}
 
-    def calculate_transitions(
+    def get_next_transition(
         self, current_state: SystemState, goal: SystemGoal
-    ) -> List[SystemTransitionCommand]:
-        commands = []
+    ) -> Optional[SystemTransitionCommand]:
+        """
+        Output the next transition based on named goal state and these priorities: 
+            C deactivate > HW Down > HW Up > C cleanup > C config > C activate
+        """
+        cmds_hw_step_up = []
+        cmds_hw_step_down = []
+        cmds_ctrl_config = []
+        cmds_ctrl_cleanup = []
+        cmds_ctrl_activate = []
+        cmds_ctrl_deactivate = []
 
         # 1. Hardware Transitions
         for hardware_goal in goal.hardware_goals:
-            hardware = current_state.components.get(hardware_goal.name)
+            hardware_component = current_state.components.get(hardware_goal.name)
 
-            if not hardware:
-                hardware = Component(
+            if not hardware_component:
+                hardware_component = Component(
                     hardware_goal.name,
                     ComponentType.HARDWARE,
                     LifecycleState.UNCONFIGURED
                 )
 
-            next_state = hardware.lifecycle_state.step_towards(hardware_goal.lifecycle_state)
+            next_state = hardware_component.lifecycle_state.step_towards(hardware_goal.lifecycle_state)
             if next_state:
-                # block hardware step down if controllers are relying on it
-                if next_state < hardware.lifecycle_state:
-                    if not self._can_hardware_step_down(hardware.name, next_state, current_state):
-                        continue
+                if next_state < hardware_component.lifecycle_state:
+                    # block hardware step down if controllers are relying on it
+                    if not self._can_hardware_step_down(hardware_component.name, next_state, current_state):
+                        cmds_hw_step_down.append(SystemTransitionCommand(hardware_component, next_state))
 
-                commands.append(SystemTransitionCommand(hardware, next_state))
+                cmds_hw_step_up.append(SystemTransitionCommand(hardware_component, next_state))
 
         # 2. Controller Transitions
         for controller_goal in goal.controller_goals:
-            controller = current_state.components.get(controller_goal.name)
+            controller_component = current_state.components.get(controller_goal.name)
 
-            if not controller:
-                controller = Component(
+            if not controller_component:
+                controller_component = Component(
                     controller_goal.name,
                     ComponentType.CONTROLLER,
                     LifecycleState.UNCONFIGURED
                 )
 
-            next_state = controller.lifecycle_state.step_towards(controller_goal.lifecycle_state)
+            next_state = controller_component.lifecycle_state.step_towards(controller_goal.lifecycle_state)
 
             if next_state:
-                # Block controller activation if hardware is not ready
-                if next_state == LifecycleState.ACTIVE:
-                    if not self._are_hardware_dependencies_met(controller_goal.name, current_state):
+                current = controller_component.lifecycle_state
+                
+                if next_state > current:
+                    # Guard activation AND configuration against hardware states
+                    if not self._can_controller_step_up(controller_goal.name, next_state, current_state):
                         continue
 
-                commands.append(SystemTransitionCommand(controller, next_state))
+                # Categorize into the appropriate phase
+                if current == LifecycleState.ACTIVE and next_state == LifecycleState.INACTIVE:
+                    cmds_ctrl_deactivate.append(SystemTransitionCommand(controller_component, next_state))
+                elif current == LifecycleState.INACTIVE and next_state == LifecycleState.ACTIVE:
+                    cmds_ctrl_activate.append(SystemTransitionCommand(controller_component, next_state))
+                elif current == LifecycleState.UNCONFIGURED and next_state == LifecycleState.INACTIVE:
+                    cmds_ctrl_config.append(SystemTransitionCommand(controller_component, next_state))
+                elif current == LifecycleState.INACTIVE and next_state == LifecycleState.UNCONFIGURED:
+                    cmds_ctrl_cleanup.append(SystemTransitionCommand(controller_component, next_state))
 
-        return commands
+        # Strict order for issuing next command
+        # C deactivate > HW Down > HW Up > C cleanup > C config > C activate
+        if cmds_ctrl_deactivate: return cmds_ctrl_deactivate[0]
+        if cmds_hw_step_down: return cmds_hw_step_down[0]
+        if cmds_hw_step_up: return cmds_hw_step_up[0]
+        if cmds_ctrl_cleanup: return cmds_ctrl_cleanup[0]
+        if cmds_ctrl_config: return cmds_ctrl_config[0]
+        if cmds_ctrl_activate: return cmds_ctrl_activate[0]
 
-    def _are_hardware_dependencies_met(self, ctrl_name: str, current_state: SystemState) -> bool:
-        """Check if all required hardware for a given controller meet the minimum state."""
+    def _can_controller_step_up(self, ctrl_name: str, next_ctrl_state: LifecycleState, current_state: SystemState) -> bool:
+        """Check if hardware dependencies are met for configuring or activating a controller."""
         rule = self.rules.get(ctrl_name)
         if not rule:
             return True
 
         for req in rule.required_hardware:
             hw_component = current_state.components.get(req.name)
-            if not hw_component or hw_component.lifecycle_state < req.state:
+            
+            if not hw_component:
                 return False
+
+            if next_ctrl_state == LifecycleState.ACTIVE:
+                # To activate, HW must meet the explicitly defined target state (e.g., ACTIVE)
+                if hw_component.lifecycle_state < req.state:
+                    return False
+            elif next_ctrl_state == LifecycleState.INACTIVE:
+                # To configure, HW must at least be INACTIVE to have exported its interfaces
+                if hw_component.lifecycle_state < LifecycleState.INACTIVE:
+                    return False
 
         return True
 

@@ -29,7 +29,7 @@ class ForemanNode(Node):
 
 
         self.state_lock = threading.Lock()
-        self.is_service_call_in_progress = False
+        self.service_call_active_future = False
 
         # CORE ENGINE  =============================================
         self.engine = ForemanEngine(self.config, self.state_lock)
@@ -37,7 +37,7 @@ class ForemanNode(Node):
         # CONTROLLER MANAGER ADAPTERS ==============================
         self.callback_group_services = MutuallyExclusiveCallbackGroup()
         self.callback_group_subscriber = ReentrantCallbackGroup()
-        self.callback_group_timer = ReentrantCallbackGroup()
+        self.callback_group_timer = MutuallyExclusiveCallbackGroup()
 
         controller_manager_name = self.config.controller_manager
 
@@ -73,22 +73,24 @@ class ForemanNode(Node):
 
     def callback_main_loop(self):
         """Main loop."""
-        if self.is_service_call_in_progress:
+
+        if self.service_call_active_future and self.service_call_active_future.done():
+            # TODO: check future.result() for errors here?
+            self.service_call_active_future = None
+
+        if self.service_call_active_future:
             return
         
-        commands = self.engine.get_next_transition()
+        command = self.engine.get_next_transition()
 
-        self.is_service_call_in_progress = True
-        
+        if not command:
+            return
+
         try:
-            # TODO: Can we namespace these to something like "ToControllerManager"
-            self.service_caller.execute_transitions(commands)
+            self.service_call_active_future = self.service_caller.execute_transition(command)
         except Exception as e:
             self.get_logger().error(f"Execution sequence failed: {e}")
             # TODO: Handle error cases here - where do we transition?
-            # TODO: how do we pass mess
-        finally:
-            self.is_service_call_in_progress = False
 
 def main(args=None):
     rclpy.init(args=args)

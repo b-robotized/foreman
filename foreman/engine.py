@@ -65,7 +65,7 @@ class ForemanEngine:
             if not self._is_ready:
                 return []
             
-            return self._planner.calculate_transitions(self._state, self._current_goal)
+            return self._planner.get_next_transition(self._state, self._current_goal)
 
     def set_system_state(self, components: List[Component]):
         """
@@ -108,9 +108,8 @@ class ForemanEngine:
         if not self._is_ready or not self._current_goal:
             return False
         
-        # If planner returns no commands, we have reached the goal state
-        transitions = self._planner.calculate_transitions(self._state, self._current_goal)
-        return len(transitions) == 0
+        # If planner returns nothing, we have reached the goal state
+        return self._planner.get_next_transition(self._state, self._current_goal) is None
 
     def _any_goal_components_missing(self) -> bool:
         """Checks if all components in the goal are present in current state."""
