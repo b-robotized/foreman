@@ -17,9 +17,8 @@ class ServiceCaller:
     Executes a list of SystemTransitionCommands using controller_manager ROS2 services.
     """
 
-    def __init__(self, node: Node, transition_pause: float, controller_manager_name: str):
+    def __init__(self, node: Node, controller_manager_name: str):
         self._node = node
-        self._pause = transition_pause
         # TODO: parametrize this?
         self._timeout = 30.0
         self._controller_manager_name = controller_manager_name
@@ -38,7 +37,7 @@ class ServiceCaller:
         self._node.get_logger().info(f"Adapters.ControllerManager.ServiceCaller: {self._controller_manager_name} service clients created.")
 
     def _service_call(self, client, request) -> Future:
-        if not client.wait_for_service(timeout_sec=5.0):
+        if not client.wait_for_service(timeout_sec=self._timeout):
             raise RuntimeError(f"Service {client.srv_name} not available. Is {self._controller_manager_name} running?")
         return client.call_async(request)
 

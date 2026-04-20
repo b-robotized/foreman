@@ -30,6 +30,7 @@ class ForemanNode(Node):
 
         self.state_lock = threading.Lock()
         self.service_call_active_future = False
+        self.last_transition_time = self.get_clock().now()
 
         # CORE ENGINE  =============================================
         self.engine = ForemanEngine(self.config, self.state_lock)
@@ -47,8 +48,7 @@ class ForemanNode(Node):
             controller_manager_name=controller_manager_name
         )
         self.service_caller = Adapters.ControllerManager.ServiceCaller(
-            node=self, 
-            transition_pause=self.config.transition_pause, 
+            node=self,
             controller_manager_name=controller_manager_name
         )
 
@@ -77,11 +77,16 @@ class ForemanNode(Node):
         if self.service_call_active_future and self.service_call_active_future.done():
             # TODO: check future.result() for errors here?
             self.service_call_active_future = None
+            self.last_transition_time = self.get_clock().now()
 
         if self.service_call_active_future:
             return
         
         command = self.engine.get_next_transition()
+        
+        time_since_last = (self.get_clock().now() - self.last_transition_time).nanoseconds / 1e9
+        if time_since_last < self.config.transition_pause:
+            return
 
         if not command:
             return
