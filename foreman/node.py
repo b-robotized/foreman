@@ -75,15 +75,21 @@ class ForemanNode(Node):
         """Main loop."""
 
         if self.service_call_active_future and self.service_call_active_future.done():
-            # TODO: check future.result() for errors here?
-            self.service_call_active_future = None
-            self.last_transition_time = self.get_clock().now()
+            try:
+                result = self.service_call_active_future.result()
+                if not result.ok:
+                    self._log_and_abort_goal(f"Service call failed. Check controller manager output.")
+            except Exception as e:
+                self._log_and_abort_goal(f"Service call exception: {e}")
+            finally:
+                self.service_call_active_future = None
+                self.last_transition_time = self.get_clock().now()
 
         if self.service_call_active_future:
             return
         
         command = self.engine.get_next_transition()
-        
+
         time_since_last = (self.get_clock().now() - self.last_transition_time).nanoseconds / 1e9
         if time_since_last < self.config.transition_pause:
             return
@@ -94,8 +100,11 @@ class ForemanNode(Node):
         try:
             self.service_call_active_future = self.service_caller.execute_transition(command)
         except Exception as e:
-            self.get_logger().error(f"Execution sequence failed: {e}")
-            # TODO: Handle error cases here - where do we transition?
+            self._log_and_abort_goal(f"Execution sequence failed: {e}")
+
+    def _log_and_abort_goal(self, reason: str):
+        self.get_logger().error(reason)
+        self.engine.abort_goal(reason)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -8,7 +8,8 @@ from foreman.types import (
     ComponentType,
     LifecycleState,
     SystemState,
-    SystemTransitionCommand
+    SystemTransitionCommand,
+    SystemGoal
 )
 from controller_manager_msgs.msg import ControllerManagerActivity
 
@@ -28,6 +29,8 @@ class ForemanEngine:
         # TODO: somehow set this up automatically. Current goal will be currently read state.
         self._current_goal = config.goals.get('broadcast_only')
         self._is_ready = False # when we get first /activity reading
+        self._is_faulted = False
+        self._error_message = ""
 
     @property
     def is_at_goal(self) -> bool:
@@ -45,25 +48,64 @@ class ForemanEngine:
             return False, f"Goal '{goal_name}' not found in configuration."
         
         with self._state_lock:
+            self._is_faulted = False
             if self._current_goal == goal:
                 if self._is_at_goal():
                     return True, f"Already at goal '{goal_name}'."
                 return True, f"Already transitioning to '{goal_name}'."
             self._current_goal = goal
+            self._is_ready = not self._any_goal_components_missing()
         
         # TODO: ok for now, but do we return more informative error structs for frontends?
         return True, f"Goal '{goal_name}' requested."
+    
+    def abort_goal(self, reason: str):
+        """Aborts the current goal by stopping transitions and yelling about the reason."""
+        with self._state_lock:
+            self._is_faulted = True
+            self._error_message = reason
+        self._abort_transition()
 
-    def get_next_transition(self) -> List[SystemTransitionCommand]:
+    def _abort_transition(self) -> Tuple[bool, str]:
+        """
+        Aborts any ongoing transitions by setting the current goal to exactly match the current state.
+        """
+        with self._state_lock:
+            if not self._is_ready:
+                return False, "Cannot abort: system state is not yet ready/observed."
+
+            hw_goals = []
+            ctrl_goals = []
+            
+            for component in self._state.components.values():
+                component_goal = Component(
+                    name=component.name, 
+                    component_type=component.component_type, 
+                    lifecycle_state=component.lifecycle_state
+                )
+                if component.component_type == ComponentType.HARDWARE:
+                    hw_goals.append(component_goal)
+                else:
+                    ctrl_goals.append(component_goal)
+
+            self._current_goal = SystemGoal(
+                name="aborted",
+                hardware_goals=hw_goals,
+                controller_goals=ctrl_goals
+            )
+            
+            return True, "Transition aborted."
+
+    def get_next_transition(self) -> Optional[SystemTransitionCommand]:
         """
         Calculate the next step toward the goal.
         """
         if not self._current_goal:
-            return []
+            return None
 
         with self._state_lock:
             if not self._is_ready:
-                return []
+                return None
             
             return self._planner.get_next_transition(self._state, self._current_goal)
 
@@ -72,6 +114,7 @@ class ForemanEngine:
         Set internal system state to that which is observed.
         The internal state should exactly match that state.
         """
+        # TODO: check if we're unexpectedly dropping a component state. add that to the monitor?
         with self._state_lock:
             self._state.components = {comp.name: comp for comp in components}
             self._is_ready = not self._any_goal_components_missing()
@@ -94,6 +137,8 @@ class ForemanEngine:
                 "goal": self.current_goal_name,
                 "ready": self._is_ready,
                 "at_goal": self._is_at_goal(),
+                "faulted": self._is_faulted,
+                "error": self._error_message,
                 "components": {
                     name: comp.lifecycle_state.name 
                     for name, comp in self._state.components.items()
