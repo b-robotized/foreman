@@ -19,6 +19,8 @@ class SetGoalServer:
             self._handle_set_goal,
             callback_group=self._node.callback_group_services
         )
+
+        print()
         
         self._node.get_logger().info("Adapters.ROS.SetGoalServer: Service /foreman/set_goal is ready.")
 
@@ -28,12 +30,21 @@ class SetGoalServer:
         # TODO: demote some of these to DEBUG logs.
         self._node.get_logger().info(f"Adapters.ROS.SetGoalServer: Received request for goal '{goal_name}'")
         
-        success, message = self._engine.request_goal(goal_name)
-        
-        response.success = success
-        response.message = message
-        
-        if not success:
-            self._node.get_logger().warn(f"Adapters.ROS.SetGoalServer: {message}")
+        if not self._engine.is_ready:
+            msg = f"Foreman not ready. Is /activity topic being published?"
+            self._node.get_logger().warn(f"Adapters.ROS.SetGoalServer: {msg}")
+            response.success = False
+            response.message = msg
+            return response
+
+        engine_response = self._engine.request_goal(goal_name)
+
+        response.success = engine_response.success
+        response.message = engine_response.message
+
+        if not engine_response.success:
+            self._node.get_logger().warn(f"Adapters.ROS.SetGoalServer: {engine_response.message}")
+        else:
+            self._node.get_logger().info(f"Adapters.ROS.SetGoalServer: {engine_response.message}")
             
         return response

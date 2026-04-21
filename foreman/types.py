@@ -22,6 +22,12 @@ class ForemanError:
     message: str
     component_names: Optional[List[str]] = None
 
+@dataclass
+class ForemanResponse:
+    """Standardized response for Engine API calls."""
+    success: bool
+    message: str
+
 class ComponentType(Enum):
     HARDWARE = 'hardware'
     CONTROLLER = 'controller'

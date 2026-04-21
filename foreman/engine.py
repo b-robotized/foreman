@@ -11,6 +11,7 @@ from foreman.types import (
     SystemTransitionCommand,
     SystemGoal,
     ForemanError,
+    ForemanResponse,
     ForemanErrorCategory
 )
 from controller_manager_msgs.msg import ControllerManagerActivity
@@ -38,14 +39,14 @@ class ForemanEngine:
         with self._state_lock:
             return self._locked_is_at_goal()
 
-    def request_goal(self, goal_name: str) -> Tuple[bool, str]:
+    def request_goal(self, goal_name: str) -> ForemanResponse:
         """
         Request a new goal for the system
         Returns: (success, message)
         """
         goal = self._config.goals.get(goal_name)
         if not goal:
-            return False, f"Goal '{goal_name}' not found in configuration."
+            return ForemanResponse(False, f"Goal '{goal_name}' not found in configuration.")
         
         with self._state_lock:
             self._error_state = None # new goal received, clear error and try again.
@@ -53,13 +54,13 @@ class ForemanEngine:
             
             if self._current_goal == goal:
                 if self._locked_is_at_goal():
-                    return True, f"Already at goal '{goal_name}'."
-                return True, f"Already transitioning to '{goal_name}'."
+                    return ForemanResponse(True, f"Already at goal '{goal_name}'.")
+                return ForemanResponse(True, f"Already transitioning to '{goal_name}'.")
                 
             self._current_goal = goal
             self._is_ready = not self._locked_any_goal_components_missing()
         
-        return True, f"Goal '{goal_name}' requested."
+        return ForemanResponse(True, f"Goal '{goal_name}' requested.")
     
     def abort_goal(self, error: ForemanError):
         """Aborts the current goal by stopping transitions."""
