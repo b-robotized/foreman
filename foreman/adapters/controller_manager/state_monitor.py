@@ -60,4 +60,9 @@ class StateMonitor:
             except ValueError:
                 continue
 
-        self._engine.set_system_state(components)
+        error = self._engine.set_system_state(components)
+
+        if error:
+            self._node.get_logger().error(
+                f"[{error.category.value}] \n{error.message}"
+            )

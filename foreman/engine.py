@@ -84,7 +84,7 @@ class ForemanEngine:
             self._last_issued_command = cmd
             return cmd
             
-    def set_system_state(self, components: List[Component]):
+    def set_system_state(self, components: List[Component]) -> Optional[ForemanError]:
         """
         Set internal system state to that which is observed.
         Monitors for unexpected changes in component state.
@@ -93,6 +93,9 @@ class ForemanEngine:
         #TODO: should we guard here against partial component updates? for example
         # if one component does not appear for some time in the set_system_state, is that
         # an error? Something to note.
+
+        #TODO: should we move this to the state monitor? For this we'll need a better way of getting
+        # current state data from the engine
         with self._state_lock:
             # detect unexpected changes
             unexpected_changes = []
@@ -123,11 +126,15 @@ class ForemanEngine:
                 
                 self._error_state = ForemanError(
                     category=ForemanErrorCategory.UNEXPECTED_STATE,
-                    message=f"Unexpected state changes:\n{'\n'.join(msgs)}",
+                    message=f"Unexpected state changes:\n  {'\n  '.join(msgs)}\nAborting transition.",
                     component_names=names
                 )
                 self._last_issued_command = None
                 self._locked_abort_transition()
+
+                return self._error_state
+            
+            return None
 
     @property
     def current_goal_name(self) -> str:
