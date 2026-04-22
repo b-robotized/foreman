@@ -19,8 +19,6 @@ class ServiceCaller:
 
     def __init__(self, node: Node, controller_manager_name: str):
         self._node = node
-        # TODO: parametrize this?
-        self._timeout = 10.0
         self._controller_manager_name = controller_manager_name
 
         group = self._node.callback_group_services
@@ -37,8 +35,8 @@ class ServiceCaller:
         self._node.get_logger().info(f"Adapters.ControllerManager.ServiceCaller: {self._controller_manager_name} service clients created.")
 
     def _service_call(self, client, request) -> Future:
-        if not client.wait_for_service(timeout_sec=self._timeout):
-            raise RuntimeError(f"Service {client.srv_name} timed out. Is {self._controller_manager_name} running?")
+        if not client.service_is_ready():
+            raise RuntimeError(f"Service {client.srv_name} not ready. Is {self._controller_manager_name} running?")
         return client.call_async(request)
 
     def execute_transition(self, cmd: SystemTransitionCommand) -> Future:
