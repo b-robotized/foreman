@@ -24,7 +24,8 @@ def test_engine_error_and_abort(minimal_foreman_config):
 
     # initialize
     initial_components = [Component('hw1', ComponentType.HARDWARE, LifecycleState.UNCONFIGURED)]
-    engine.set_system_state(initial_components)
+    response = engine.set_system_state(initial_components)
+    assert response.success is True
     
     # goal to activate comes
     response = engine.request_goal('active_goal')
@@ -73,9 +74,13 @@ def test_set_system_state_expected_transition(minimal_foreman_config):
     
     # simulate successful expected state change via state monitor
     comp1_new = Component('hw1', ComponentType.HARDWARE, LifecycleState.INACTIVE)
-    engine.set_system_state([comp1_new])
+    response = engine.set_system_state([comp1_new])
     
-    # verify no errors were triggered
+    # Verify the new ForemanResponse contract
+    assert response.success is True
+    assert response.error is None
+    
+    # verify no errors were triggered in snapshot
     snapshot = engine.get_engine_snapshot()
     assert snapshot['error']['is_error'] is False
 
@@ -94,9 +99,15 @@ def test_set_system_state_unexpected_downgrade(minimal_foreman_config):
     
     # simulate unprompted hardware crash
     comp1_crashed = Component('hw1', ComponentType.HARDWARE, LifecycleState.UNCONFIGURED)
-    engine.set_system_state([comp1_crashed])
+    response = engine.set_system_state([comp1_crashed])
     
-    # verify error was generated correctly
+    # Verify the new ForemanResponse contract caught the error
+    assert response.success is False
+    assert response.error is not None
+    assert response.error.category == ForemanErrorCategory.UNEXPECTED_STATE
+    assert 'hw1' in response.error.component_names
+    
+    # verify error was generated correctly in snapshot
     snapshot = engine.get_engine_snapshot()
     assert snapshot['error']['is_error'] is True
     assert snapshot['error']['category'] == ForemanErrorCategory.UNEXPECTED_STATE.value

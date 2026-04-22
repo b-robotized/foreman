@@ -95,14 +95,11 @@ class ForemanEngine:
             self._last_issued_command = cmd
             return cmd
             
-    def set_system_state(self, components: List[Component]) -> Optional[ForemanError]:
+    def set_system_state(self, components: List[Component]) -> ForemanResponse:
         """
         Set internal system state to that which is observed.
         Monitors for unexpected changes in component state.
         """
-
-        #TODO: should we move this to the state monitor? For this we'll need a better way of getting
-        # current state data from the engine
         with self._state_lock:
             # overwrite existing state
             previous_state = self._state.components
@@ -115,7 +112,7 @@ class ForemanEngine:
             if (self._error_state or 
                 not was_ready or
                 not self._current_goal):
-                return None
+                return ForemanResponse(True, "System state observed.")
 
             # otherwise, check for anomalies
             unexpected_changes = []
@@ -161,7 +158,13 @@ class ForemanEngine:
                 self._last_issued_command = None
                 self._locked_abort_transition()
 
-            return self._error_state
+                return ForemanResponse(
+                    success=False, 
+                    message="Unexpected system state.", 
+                    error=self._error_state
+                )
+
+            return ForemanResponse(True, "System state observed with no anomalies.")
 
     @property
     def current_goal_name(self) -> str:

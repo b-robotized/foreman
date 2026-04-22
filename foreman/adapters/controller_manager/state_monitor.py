@@ -62,12 +62,12 @@ class StateMonitor:
 
 
         was_ready = self._engine.is_ready
-        error = self._engine.set_system_state(components)
+        response = self._engine.set_system_state(components)
 
         if not was_ready and self._engine.is_ready:
             self._node.get_logger().info("Foreman is READY. Fresh state received from /activity.")
 
-        if error:
+        if not response.success and response.error:
             self._node.get_logger().error(
-                f"[{error.category.value}] \n{error.message}"
+                f"[{response.error.category.value}] \n{response.error.message}"
             )

@@ -27,6 +27,7 @@ class ForemanResponse:
     """Standardized response for Engine API calls."""
     success: bool
     message: str
+    error: Optional[ForemanError] = None
 
 class ComponentType(Enum):
     HARDWARE = 'hardware'
