@@ -14,7 +14,6 @@ from foreman.types import (
     ForemanResponse,
     ForemanErrorCategory
 )
-from controller_manager_msgs.msg import ControllerManagerActivity
 
 class ForemanEngine:
     """
