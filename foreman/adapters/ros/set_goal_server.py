@@ -29,13 +29,6 @@ class SetGoalServer:
         goal_name = request.goal
         # TODO: demote some of these to DEBUG logs.
         self._node.get_logger().info(f"Adapters.ROS.SetGoalServer: Received request for goal '{goal_name}'")
-        
-        if not self._engine.is_ready:
-            msg = f"Foreman not ready. Is /activity topic being published?"
-            self._node.get_logger().warn(f"Adapters.ROS.SetGoalServer: {msg}")
-            response.success = False
-            response.message = msg
-            return response
 
         engine_response = self._engine.request_goal(goal_name)
 

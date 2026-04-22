@@ -21,15 +21,14 @@ def test_engine_error_and_abort(minimal_foreman_config):
     engine = ForemanEngine(minimal_foreman_config, lock)
     
     ERROR_MSG = "Hardware 'hw1' rejected configuration!"
-    ABORT_GOAL_NAME = "aborted"
 
     # initialize
     initial_components = [Component('hw1', ComponentType.HARDWARE, LifecycleState.UNCONFIGURED)]
     engine.set_system_state(initial_components)
     
     # goal to activate comes
-    success, msg = engine.request_goal('active_goal')
-    assert success is True
+    response = engine.request_goal('active_goal')
+    assert response.success is True
     assert engine.is_at_goal is False
     
     # planner wants to transition
@@ -45,17 +44,17 @@ def test_engine_error_and_abort(minimal_foreman_config):
     )
     engine.abort_goal(error)
     
-    # system is now AT GOAL
-    assert engine.is_at_goal is True 
+    # system dropped the goal due to abort
+    assert engine.is_at_goal is False 
     
     # planner outputs nothing
-    assert not engine.get_next_transition()
+    assert engine.get_next_transition() is None
     
-    # frontend will see the error
+    # frontend will see the error and no active goal
     snapshot = engine.get_engine_snapshot()
     assert snapshot['error']['is_error'] is True
     assert snapshot['error']['message'] == ERROR_MSG
-    assert snapshot['goal'] == ABORT_GOAL_NAME
+    assert snapshot['goal'] == 'None'
 
 def test_set_system_state_expected_transition(minimal_foreman_config):
     lock = threading.Lock()
@@ -102,7 +101,7 @@ def test_set_system_state_unexpected_downgrade(minimal_foreman_config):
     assert snapshot['error']['is_error'] is True
     assert snapshot['error']['category'] == ForemanErrorCategory.UNEXPECTED_STATE.value
     assert 'hw1' in snapshot['error']['components']
-    assert snapshot['goal'] == 'aborted'
+    assert snapshot['goal'] == 'None'
     
     # verify planner halts
     assert engine.get_next_transition() is None

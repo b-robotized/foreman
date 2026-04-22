@@ -60,7 +60,12 @@ class StateMonitor:
             except ValueError:
                 continue
 
+
+        was_ready = self._engine.is_ready
         error = self._engine.set_system_state(components)
+
+        if not was_ready and self._engine.is_ready:
+            self._node.get_logger().info("Foreman is READY. Fresh state received from /activity.")
 
         if error:
             self._node.get_logger().error(
