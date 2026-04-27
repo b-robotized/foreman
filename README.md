@@ -1,5 +1,7 @@
 # Foreman
 
+***Note: Still under active development! For example, config path is hardcoded in `foreman/node.py`.***
+
 ros2_control component lifecycle manager for easier brinup.
 
 It takes a named group of component lifecycle states (a system state) in `config/scenario.yaml`, and tries to automatically transition between them.
