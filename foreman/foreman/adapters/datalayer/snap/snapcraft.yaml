@@ -1,4 +1,4 @@
-name: ros-jazzy-foreman
+name: b-controlled-box-foreman
 verison: '1.0'
 summary: Foreman ROS 2 Package with ctrlX Data Layer integration
 description: Package for managing ros2_control component lifecycle using ctrlX non-RT Data Layer
@@ -21,8 +21,6 @@ summary: Foreman ROS 2 package with ctrlX integration
 description: |
   A simple python package running on ROS 2 Jazzy, integrated 
   with the ctrlX Data Layer via IPC.
-
-# Use core24 for ROS 2 Jazzy compatibility
 base: core24
 confinement: strict
 
@@ -39,7 +37,7 @@ plugs:
 
 apps:
   foreman-node:
-    command: bin/run-node.sh
+    command: bin/entrypoint.sh
     daemon: simple
     plugs:
       - network
@@ -56,7 +54,8 @@ parts:
   # 1. The ROS 2 Workspace Build
   foreman:
     plugin: colcon
-    source: https://your-remote-repo.com/foreman.git # Replace with your repo
+    source: https://github.com/b-robotized/foreman.git
+    source-branch: datalayer
     source-type: git
     build-environment:
       - ROS_VERSION: '2'
@@ -65,17 +64,16 @@ parts:
       - ros-jazzy-rclpy
       # Add other ros packages needed by foreman here
 
-  # 2. CtrlX Data Layer Python Library
-  # Downloaded dynamically via build-snap.sh
+  # CtrlX Datalayer Python library
+  # downloaded in build.sh
   ctrlx-datalayer:
     plugin: python
-    source: snap/wheels/ 
+    source: wheels/
     python-packages:
       - ctrlx_datalayer-2.6.0-py3-none-any.whl
 
-  # 3. The Entrypoint Script
-  scripts:
+  entrypoint-script:
     plugin: dump
-    source: snap/local/
+    source: .
     organize:
-      run-node.sh: bin/run-node.sh
+      entrypoint.sh: bin/entrypoint.sh
