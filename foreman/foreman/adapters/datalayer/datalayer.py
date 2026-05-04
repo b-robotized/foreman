@@ -12,11 +12,9 @@ class SimpleStringNode:
         self._provider = provider
         self._address = address
         
-        # Initialize variant holding the data
         self._data = Variant()
         self._data.set_string(initial_value)
 
-        # 1. Define the mandatory 6 callbacks
         self._cbs = ProviderNodeCallbacks(
             self.__on_create,
             self.__on_remove,
@@ -27,7 +25,6 @@ class SimpleStringNode:
         )
         self._provider_node = ProviderNode(self._cbs)
 
-        # 2. Build node metadata
         builder = MetadataBuilder(allowed=AllowedOperation.READ | AllowedOperation.WRITE)
         builder = builder.set_display_name(self._address)
         builder = builder.set_node_class(NodeClass.NodeClass.Variable)
@@ -59,7 +56,6 @@ class SimpleStringNode:
             cb(Result.OK, new_data)
 
     def __on_read(self, userdata, address: str, data: Variant, cb: NodeCallback):
-        # We simply return the internally stored variant
         cb(Result.OK, self._data)
 
     def __on_write(self, userdata, address: str, data: Variant, cb: NodeCallback):
@@ -81,12 +77,9 @@ class DatalayerAdapter:
         self.node_path = "foreman/test_string"
 
     def start(self):
-        # 1. Initialize the Data Layer System
         self.system = ctrlxdatalayer.system.System("")
         self.system.start(False)
 
-        # 2. Connect to Provider
-        # If SNAP is in the environment, "ipc://" automatically maps to $SNAP_DATA/.datalayer
         conn_string = "ipc://" if 'SNAP' in os.environ else "tcp://boschrexroth:boschrexroth@192.168.1.1"
         self.provider = self.system.factory().create_provider(conn_string)
         
@@ -98,7 +91,6 @@ class DatalayerAdapter:
             print("Provider not connected!")
             return False
 
-        # 3. Create and register our custom node
         self.node = SimpleStringNode(self.provider, self.node_path, "Initial Foreman Value")
         result = self.node.register()
         print(f"Registered node '{self.node_path}' with result: {result}")

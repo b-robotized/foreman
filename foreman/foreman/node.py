@@ -69,9 +69,18 @@ class ForemanNode(Node):
         # TODO: Add pretty print of current state and read config?
         self.get_logger().info("Foreman Node initialized.")
 
-        # TEST DATALAYER
-        self.dl_adapter = Adapters.Datalayer.DatalayerAdapter
-        self.timer = self.create_timer(2.0, self.test_datalayer_callback, callback_group=self.callback_group_subscriber)
+        # TEST DATALAYER - TEMPORARy, for now we guard until Datalayer is supported
+        if Adapters.Datalayer.AVAILABLE:
+            self.dl_adapter = Adapters.Datalayer.DatalayerAdapter()
+            self.timer = self.create_timer(
+                2.0, 
+                self.test_datalayer_callback, 
+                callback_group=self.callback_group_subscriber
+            )
+            self.get_logger().info("Datalayer adapter initialized.")
+        else:
+            self.dl_adapter = None
+            self.get_logger().info("Datalayer adapter not available.")
         self.counter = 0
 
     def test_datalayer_callback(self):
@@ -140,8 +149,6 @@ class ForemanNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     
-    node = ForemanNode()
-
     try:
         node = ForemanNode() 
     except Exception as e:
