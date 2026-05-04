@@ -2,7 +2,7 @@ import os
 import yaml
 
 class DatalayerConfigLoader:
-    def __init__(self, parser: ):
+    def __init__(self):
         # $SNAP_COMMON is automatically set by snapd at runtime.
         # We fallback to the current directory ('.') for local desktop testing.
         self.snap_common = os.environ.get('SNAP_COMMON', '.')
@@ -13,7 +13,7 @@ class DatalayerConfigLoader:
             'solutions', 
             'activeConfiguration', 
             'AppData', 
-            'ros2-jazzy-foreman' # Must match your snap name
+            'foreman' # Must match your snap name
         )
         
         self.config_file = os.path.join(self.app_data_dir, 'scenario.yaml')
