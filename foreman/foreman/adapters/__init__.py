@@ -13,7 +13,7 @@ __all__ = [
     "ComponentStateMonitor",
     "ControllerManagerServiceCaller",
     "LifecycleNodeServiceCaller",
-    "RosGoalServer",
+    "RosSetGoalServer",
     "RosNodeParameters",
     "DatalayerAdapter"
 ]

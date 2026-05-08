@@ -24,6 +24,9 @@ class ForemanNode(Node):
         self._active_transition = None 
         self.last_transition_time = self.get_clock().now()
 
+        self.callback_group_services = MutuallyExclusiveCallbackGroup()
+        self.callback_group_subscriber = ReentrantCallbackGroup()
+        self.callback_group_timer = MutuallyExclusiveCallbackGroup()
         
         # CONFIG  =============================================
         self.ros_node_parameters = adapters.RosNodeParameters(node=self)
@@ -57,9 +60,6 @@ class ForemanNode(Node):
         )
 
         # MAIN LOOP ================================================
-        self.callback_group_services = MutuallyExclusiveCallbackGroup()
-        self.callback_group_subscriber = ReentrantCallbackGroup()
-        self.callback_group_timer = MutuallyExclusiveCallbackGroup()
 
         # RUN everything at 10HZ
         # TODO: Configure this?

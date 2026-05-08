@@ -191,3 +191,80 @@ def test_unexpected_lifecycle_node_state_change(lifecycle_foreman_config):
     snapshot = engine.get_engine_snapshot()
     assert snapshot['error']['is_error'] is True
     assert snapshot['goal'] == 'None'
+
+
+# --- Unsatisfiable Dependency Tests ---
+
+@pytest.fixture
+def dependency_config():
+    """Config where controller depends on a lifecycle node being ACTIVE."""
+    from foreman.types import ControllerDependencyRule, HardwareRequirement
+
+    rules = [
+        ControllerDependencyRule(
+            controller_name='gripper',
+            required_hardware=[HardwareRequirement('robot_manager', LifecycleState.ACTIVE)]
+        )
+    ]
+
+    # Goal that requests controller active but doesn't include lifecycle node
+    goal_missing_dep = SystemGoal('active',
+        controller_goals=[Component('gripper', ComponentType.CONTROLLER, LifecycleState.ACTIVE)])
+
+    # Goal that properly includes the lifecycle node
+    goal_with_dep = SystemGoal('active_full',
+        controller_goals=[Component('gripper', ComponentType.CONTROLLER, LifecycleState.ACTIVE)],
+        lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)])
+
+    return ParsedScenario(
+        controller_manager="test_cm",
+        transition_pause=0.0,
+        hardware=[],
+        dependency_rules=rules,
+        goals={'active': goal_missing_dep, 'active_full': goal_with_dep},
+        lifecycle_nodes=["robot_manager"]
+    )
+
+
+def test_goal_rejected_unsatisfiable_dependency(dependency_config):
+    """Goal is rejected when controller dependency is not met and not in goal."""
+    lock = threading.Lock()
+    engine = ForemanEngine(dependency_config, lock)
+
+    engine.set_system_state([
+        Component('gripper', ComponentType.CONTROLLER, LifecycleState.INACTIVE),
+        Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.INACTIVE),
+    ])
+
+    response = engine.request_goal('active')
+    assert response.success is False
+    assert 'gripper' in response.message
+    assert 'robot_manager' in response.message
+
+
+def test_goal_accepted_when_dependency_in_goal(dependency_config):
+    """Goal is accepted when dependency is included in goal targets."""
+    lock = threading.Lock()
+    engine = ForemanEngine(dependency_config, lock)
+
+    engine.set_system_state([
+        Component('gripper', ComponentType.CONTROLLER, LifecycleState.INACTIVE),
+        Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.INACTIVE),
+    ])
+
+    response = engine.request_goal('active_full')
+    assert response.success is True
+
+
+def test_goal_accepted_when_dependency_already_satisfied(dependency_config):
+    """Goal is accepted when dependency is already at required state."""
+    lock = threading.Lock()
+    engine = ForemanEngine(dependency_config, lock)
+
+    engine.set_system_state([
+        Component('gripper', ComponentType.CONTROLLER, LifecycleState.INACTIVE),
+        Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE),
+    ])
+
+    response = engine.request_goal('active')
+    assert response.success is True

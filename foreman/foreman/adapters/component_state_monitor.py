@@ -2,6 +2,7 @@ from typing import Dict, List
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
+from rclpy.event_handler import SubscriptionEventCallbacks, QoSSubscriptionMatchedInfo
 
 from controller_manager_msgs.msg import ControllerManagerActivity
 from lifecycle_msgs.srv import GetState
@@ -17,12 +18,12 @@ class ComponentStateMonitor:
 
     Sources:
       - /<controller_manager>/activity (TRANSIENT_LOCAL): HW + Controllers
-      - /<node>/get_state (service, on discovery): Lifecycle Nodes initial state
-      - /<node>/transition_event (VOLATILE): Lifecycle Nodes reactive updates
+      - /<node>/transition_event (VOLATILE, with matched event): Lifecycle Nodes
 
-    For lifecycle nodes, we have to poll /get_state/ for discovery, as /transition_event is volatile and we might not
-    catch the node appearing in all cases.
-    If you have an idea how to do this better, please open an issue or PR.
+    Lifecycle node discovery and death detection uses the QpS "matched event" on the
+    transition_event topic. When the publisher appears (node started), we call
+    get_state/ service once for initial state. When it disappears (node died), we mark FINALIZED.
+    https://docs.ros.org/en/rolling/Concepts/Intermediate/About-Quality-of-Service-Settings.html#matched-events
     """
 
     def __init__(
@@ -34,14 +35,13 @@ class ComponentStateMonitor:
     ):
         self._node = node
         self._engine = engine
-        self.logger_prefix = "Adapters.ComponentStateMonitor:"
+        self._logger_prefix = "Adapters.ComponentStateMonitor:"
 
         self._cm_components: Dict[str, Component] = {}
         self._lc_components: Dict[str, Component] = {}
         self._lc_nodes_alive: Dict[str, bool] = {n: False for n in lifecycle_nodes}
-        self._lifecycle_node_names = lifecycle_nodes
 
-        # Controller Manager /activity topic
+        # --- Controller Manager /activity topic ---
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -56,35 +56,41 @@ class ComponentStateMonitor:
             callback_group=self._node.callback_group_subscriber
         )
         self._node.get_logger().info(
-            f"{self.logger_prefix}  Subscribed to /{controller_manager_name}/activity"
+            f"{self._logger_prefix} Subscribed to /{controller_manager_name}/activity"
         )
 
-        # Lifecycle node service clients + subscriptions
-        self._get_state_clients: Dict[str, object] = {}
-        self._transition_event_subs: Dict[str, object] = {}
+        # --- Lifecycle node monitoring ---
+        self._lc_node_get_state_clients: Dict[str, object] = {}
 
-        for lc_name in lifecycle_nodes:
-            client = self._node.create_client(
+        for lc_node_name in lifecycle_nodes:
+            self._lc_node_get_state_clients[lc_node_name] = self._node.create_client(
                 GetState,
-                f'/{lc_name}/get_state',
+                f'/{lc_node_name}/get_state',
                 callback_group=self._node.callback_group_services
             )
-            self._get_state_clients[lc_name] = client
 
-        # This livelines check if for the sole case when a lifecycle node crashes and 
-        # does not emit a /node/transition_event/ message for us to detect it.
-        # I'll check LIVELINESS QoS if we can do it via a callback
-        # TODO: https://design.ros2.org/articles/qos_deadline_liveliness_lifespan.html
-        if lifecycle_nodes:
-            self._liveness_timer = self._node.create_timer(
-                1.0,
-                self._lifecycle_liveness_check,
+            # this matched event on transition_event/ topic handles both
+            # discovery (publisher appeared) and death detection (publisher disappeared).
+            # https://docs.ros.org/en/jazzy/p/rclpy/rclpy.event_handler.html#rclpy.event_handler.SubscriptionEventCallbacks
+            # also, we're in a loop, so we need to pass lc_node_name explicitly to the lambda as well.
+            event_callbacks = SubscriptionEventCallbacks(
+                matched=lambda info, n=lc_node_name: self._on_lifecycle_publisher_matched(n, info)
+            )
+            self._node.create_subscription(
+                TransitionEvent,
+                f'/{lc_node_name}/transition_event',
+                callback=lambda msg, n=lc_node_name: self._lifecycle_transition_event_callback(n, msg),
+                qos_profile=10,
+                event_callbacks=event_callbacks,
                 callback_group=self._node.callback_group_subscriber
             )
+
+        if lifecycle_nodes:
             self._node.get_logger().info(
-                f"{self.logger_prefix}  Monitoring lifecycle nodes: {lifecycle_nodes}"
+                f"{self._logger_prefix} Monitoring lifecycle nodes: {lifecycle_nodes}"
             )
-    # TODO: monitor liveliness of this topic as well? That way we know if controller manager dies.
+
+    # TODO: use matched event for this topic as well? That way we know if controller manager dies.
     # Minor. Currently we catch unexpected transitions in the engine (all components go to finalized)
     def _activity_callback(self, msg: ControllerManagerActivity):
         """Parse /activity message into components and push merged state."""
@@ -113,77 +119,54 @@ class ComponentStateMonitor:
         self._cm_components = components
         self._push_merged_state()
 
-    def _lifecycle_liveness_check(self):
-        """Periodic check: discover lifecycle nodes and confirm liveness."""
-        for name, client in self._get_state_clients.items():
-            is_reachable = client.service_is_ready()
+    def _on_lifecycle_publisher_matched(self, name: str, info: QoSSubscriptionMatchedInfo):
+        """DDS matched event: lifecycle node's transition_event publisher appeared or disappeared."""
+        if info.current_count > 0 and not self._lc_nodes_alive[name]:
+            # node appeared, get initial state
+            self._lc_nodes_alive[name] = True
+            self._lifecycle_call_get_state(name)
 
-            if is_reachable and not self._lc_nodes_alive[name]:
-                # Node just appeared — poll get_state for actual state
-                self._poll_get_state(name)
+        elif info.current_count == 0 and self._lc_nodes_alive[name]:
+            # node disappeared, crashed
+            self._lc_nodes_alive[name] = False
+            self._lc_components[name] = Component(
+                name=name,
+                component_type=ComponentType.LIFECYCLE_NODE,
+                lifecycle_state=LifecycleState.FINALIZED
+            )
+            self._node.get_logger().warn(
+                f"{self._logger_prefix} Lifecycle node '{name}' disconnected."
+            )
+            self._push_merged_state()
 
-            elif not is_reachable and self._lc_nodes_alive[name]:
-                # Node was alive, now gone
-                self._lc_nodes_alive[name] = False
-                self._lc_components[name] = Component(
-                    name=name,
-                    component_type=ComponentType.LIFECYCLE_NODE,
-                    lifecycle_state=LifecycleState.FINALIZED
-                )
-                self._node.get_logger().warn(
-                    f"{self.logger_prefix}  Lifecycle node '{name}' is no longer reachable."
-                )
-                self._push_merged_state()
-
-    def _poll_get_state(self, name: str):
-        """Async call to /<node>/get_state. On response, mark alive and subscribe."""
-        client = self._get_state_clients[name]
+    def _lifecycle_call_get_state(self, name: str):
+        """One-shot async call to /<node>/get_state for initial state on discovery."""
+        client = self._lc_node_get_state_clients[name]
         future = client.call_async(GetState.Request())
-        future.add_done_callback(lambda f: self._on_get_state_response(name, f))
+        # TODO: we can maybe use add_done_callback in node.py as well, for ease of use, now that we learned about it?
+        future.add_done_callback(lambda f: self._on_lifecycle_get_state_response(name, f))
 
-    def _on_get_state_response(self, name: str, future):
-        """Handle get_state response: update state, mark alive, subscribe to events."""
+    def _on_lifecycle_get_state_response(self, name: str, future):
         try:
             response = future.result()
             state = LifecycleState(response.current_state.id)
-
-            was_alive = self._lc_nodes_alive[name]
-            self._lc_nodes_alive[name] = True
             self._lc_components[name] = Component(
                 name=name,
                 component_type=ComponentType.LIFECYCLE_NODE,
                 lifecycle_state=state
             )
-
-            if not was_alive:
-                self._subscribe_transition_event(name)
-                self._node.get_logger().info(
-                    f"{self.logger_prefix}  Lifecycle node '{name}' discovered. State: {state.name}"
-                )
-
+            self._node.get_logger().info(
+                f"{self._logger_prefix} Lifecycle node '{name}' discovered. State: {state.name}"
+            )
             self._push_merged_state()
 
         except Exception as e:
             self._node.get_logger().warn(
-                f"{self.logger_prefix}  Failed to get state for '{name}': {e}"
+                f"{self._logger_prefix} Failed to get state for '{name}': {e}"
             )
 
-    def _subscribe_transition_event(self, name: str):
-        """Subscribe to /<node>/transition_event for reactive state updates."""
-        if name in self._transition_event_subs:
-            return
-
-        sub = self._node.create_subscription(
-            TransitionEvent,
-            f'/{name}/transition_event',
-            lambda msg, n=name: self._transition_event_callback(n, msg),
-            10,
-            callback_group=self._node.callback_group_subscriber
-        )
-        self._transition_event_subs[name] = sub
-
-    def _transition_event_callback(self, name: str, msg: TransitionEvent):
-        """Handle lifecycle transition event: update component state."""
+    def _lifecycle_transition_event_callback(self, name: str, msg: TransitionEvent):
+        """Reactive state update from /<node>/transition_event."""
         try:
             new_state = LifecycleState(msg.goal_state.id)
             self._lc_components[name] = Component(
@@ -203,9 +186,9 @@ class ComponentStateMonitor:
         response = self._engine.set_system_state(all_components)
 
         if not was_ready and self._engine.is_ready:
-            self._node.get_logger().info(f"{self.logger_prefix} Foreman is READY. Fresh state received.")
+            self._node.get_logger().info(f"{self._logger_prefix} Foreman is READY. Fresh state received.")
 
         if not response.success and response.error:
             self._node.get_logger().error(
-                f"{self.logger_prefix} [{response.error.category.value}] \n{response.error.message}"
+                f"{self._logger_prefix} [{response.error.category.value}] \n{response.error.message}"
             )

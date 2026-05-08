@@ -58,6 +58,14 @@ class ForemanEngine:
                     f"Cannot accept goal '{goal_name}'. Missing components in observed state: {missing_components}"
                 )
 
+            unsatisfiable = self._locked_check_unsatisfiable_dependencies(goal)
+            if unsatisfiable:
+                return ForemanResponse(
+                    False,
+                    f"Cannot accept goal '{goal_name}'. Unsatisfiable dependencies:\n"
+                    + "\n".join(f"  - {msg}" for msg in unsatisfiable)
+                )
+
             error_cleared_msg = "Error cleared on new goal. " if self._error_state else ""
             self._error_state = None # new goal received, clear error and try again.
             self._last_issued_command = None
@@ -221,6 +229,54 @@ class ForemanEngine:
             if component_goal.name not in self._state.components:
                 missing.append(component_goal.name)
         return missing
+
+    def _locked_check_unsatisfiable_dependencies(self, goal: SystemGoal) -> List[str]:
+        """
+        Validates that all controller dependencies in the goal can be satisfied.
+        A dependency is satisfiable if:
+        - It is already at or above the required state in current observed state, OR
+        - It is included in the goal's infrastructure targets at or above the required state.
+        Returns a list of error strings. Empty = all satisfiable.
+        MUST be called while holding self._state_lock!
+        """
+        # TODO: refactor naming. Unfortunately, we treat lifecycle nodes same as hardware, so 
+        # in places, like rule.required_hardware, we are thinking about lifecycle nodes as well. 
+        # Lets use "infrastructure" for now to mean both of those
+        goal_infrastructure_states = {}
+        for comp in goal.hardware_goals + goal.lifecycle_node_goals:
+            goal_infrastructure_states[comp.name] = comp.lifecycle_state
+            
+        errors = []
+        for ctrl_goal in goal.controller_goals:
+            rule = self._planner.rules.get(ctrl_goal.name)
+            if not rule:
+                continue
+
+            # if stepping down, we don't care.
+            if ctrl_goal.lifecycle_state == LifecycleState.UNCONFIGURED:
+                continue
+
+            for req in rule.required_hardware:
+                if ctrl_goal.lifecycle_state == LifecycleState.ACTIVE:
+                    required_state = req.state
+                else:
+                    # for configure, we need at least inactive.
+                    required_state = LifecycleState.INACTIVE
+
+                dependency_goal_state = goal_infrastructure_states.get(req.name)
+                dependency_current = self._state.components.get(req.name)
+                dependency_current_state = dependency_current.lifecycle_state if dependency_current else None
+
+                satisfied_by_goal = dependency_goal_state is not None and dependency_goal_state >= required_state
+                satisfied_by_current = dependency_current_state is not None and dependency_current_state >= required_state
+
+                if not satisfied_by_goal and not satisfied_by_current:
+                    state_str = dependency_current_state.name if dependency_current_state else "UNKNOWN"
+                    errors.append(
+                        f"'{ctrl_goal.name}' requires '{req.name}' at {required_state.name}, "
+                        f"but it is {state_str} and not targeted in this goal"
+                    )
+        return errors
 
     def _locked_abort_transition(self):
         """
