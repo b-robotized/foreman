@@ -2,7 +2,7 @@ from rclpy.node import Node
 from foreman_msgs.srv import SetGoal
 from foreman.engine import ForemanEngine
 
-class SetGoalServer:
+class RosSetGoalServer:
     """   
     ROS 2 service to set a named goal for Foreman Engine
     """
@@ -10,7 +10,7 @@ class SetGoalServer:
     def __init__(self, node: Node, engine: ForemanEngine):
         self._node = node
         self._engine = engine
-        
+        self.logger_prefix = "Adapters.RosSetGoalServer:"
         # Using MutuallyExclusiveCallbackGroup
         # If a service is processing, we reject new service requests.
         self._srv = self._node.create_service(
@@ -22,13 +22,13 @@ class SetGoalServer:
 
         print()
         
-        self._node.get_logger().info("Adapters.ROS.SetGoalServer: Service /foreman/set_goal is ready.")
+        self._node.get_logger().info(f"{self.logger_prefix} Service /foreman/set_goal is ready.")
 
     def _handle_set_goal(self, request, response):
         """Sets the target system state."""
         goal_name = request.goal
         # TODO: demote some of these to DEBUG logs.
-        self._node.get_logger().info(f"Adapters.ROS.SetGoalServer: Received request for goal '{goal_name}'")
+        self._node.get_logger().info(f"{self.logger_prefix} Received request for goal '{goal_name}'")
 
         engine_response = self._engine.request_goal(goal_name)
 
@@ -36,8 +36,8 @@ class SetGoalServer:
         response.message = engine_response.message
 
         if not engine_response.success:
-            self._node.get_logger().warn(f"Adapters.ROS.SetGoalServer: {engine_response.message}")
+            self._node.get_logger().warn(f"{engine_response.message}")
         else:
-            self._node.get_logger().info(f"Adapters.ROS.SetGoalServer: {engine_response.message}")
+            self._node.get_logger().info(f"{engine_response.message}")
             
         return response

@@ -262,3 +262,133 @@ def test_scenario_10_controller_configure_blocked_by_hardware(basic_planner):
     cmd = basic_planner.get_next_transition(state, goal)
     assert cmd.component.name == 'franka_jtc'
     assert cmd.goal_state == LifecycleState.INACTIVE
+
+
+# --- Lifecycle Node Tests ---
+
+@pytest.fixture
+def lifecycle_planner():
+    """Planner where a controller depends on a lifecycle node."""
+    rules = [
+        ControllerDependencyRule(
+            controller_name='gripper',
+            required_hardware=[HardwareRequirement('robot_manager', LifecycleState.ACTIVE)]
+        )
+    ]
+    return Planner(dependency_rules=rules)
+
+
+def test_scenario_11_lifecycle_node_bringup(lifecycle_planner):
+    """Lifecycle node transitions in the same phase as hardware (step up)."""
+    state = SystemState(components={
+        'robot_manager': Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.UNCONFIGURED),
+        'gripper': Component('gripper', ComponentType.CONTROLLER, LifecycleState.UNCONFIGURED)
+    })
+    goal = SystemGoal('active',
+                      lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)],
+                      controller_goals=[Component('gripper', ComponentType.CONTROLLER, LifecycleState.ACTIVE)])
+
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'robot_manager'
+    assert cmd.component.component_type == ComponentType.LIFECYCLE_NODE
+    assert cmd.goal_state == LifecycleState.INACTIVE
+    apply_command(state, cmd)
+
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'robot_manager'
+    assert cmd.goal_state == LifecycleState.ACTIVE
+    apply_command(state, cmd)
+
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'gripper'
+    assert cmd.goal_state == LifecycleState.INACTIVE
+    apply_command(state, cmd)
+
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'gripper'
+    assert cmd.goal_state == LifecycleState.ACTIVE
+
+
+def test_scenario_12_controller_blocked_by_lifecycle_node(lifecycle_planner):
+    """Controller cannot activate until lifecycle node meets required state."""
+    state = SystemState(components={
+        'robot_manager': Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.INACTIVE),
+        'gripper': Component('gripper', ComponentType.CONTROLLER, LifecycleState.INACTIVE)
+    })
+    goal = SystemGoal('active',
+                      lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)],
+                      controller_goals=[Component('gripper', ComponentType.CONTROLLER, LifecycleState.ACTIVE)])
+
+    # Lifecycle node must activate before the controller can
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'robot_manager'
+    assert cmd.goal_state == LifecycleState.ACTIVE
+    apply_command(state, cmd)
+
+    # Now controller can activate
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'gripper'
+    assert cmd.goal_state == LifecycleState.ACTIVE
+
+
+def test_scenario_13_lifecycle_node_stepdown_blocked_by_controller(lifecycle_planner):
+    """Lifecycle node cannot step down while a dependent controller is active."""
+    state = SystemState(components={
+        'robot_manager': Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE),
+        'gripper': Component('gripper', ComponentType.CONTROLLER, LifecycleState.ACTIVE)
+    })
+    goal = SystemGoal('idle',
+                      lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.INACTIVE)],
+                      controller_goals=[Component('gripper', ComponentType.CONTROLLER, LifecycleState.INACTIVE)])
+
+    # Controller must deactivate first (priority: ctrl deactivate > infra down)
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'gripper'
+    assert cmd.goal_state == LifecycleState.INACTIVE
+    apply_command(state, cmd)
+
+    # Now lifecycle node can step down
+    cmd = lifecycle_planner.get_next_transition(state, goal)
+    assert cmd.component.name == 'robot_manager'
+    assert cmd.goal_state == LifecycleState.INACTIVE
+
+
+def test_scenario_14_mixed_hw_lifecycle_and_controllers():
+    """Full scenario: HW + lifecycle node + controller, bring-up sequence."""
+    rules = [
+        ControllerDependencyRule(
+            controller_name='jtc',
+            required_hardware=[
+                HardwareRequirement('hw_arm', LifecycleState.ACTIVE),
+                HardwareRequirement('robot_manager', LifecycleState.ACTIVE)
+            ]
+        )
+    ]
+    planner = Planner(dependency_rules=rules)
+
+    state = SystemState(components={
+        'hw_arm': Component('hw_arm', ComponentType.HARDWARE, LifecycleState.UNCONFIGURED),
+        'robot_manager': Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.UNCONFIGURED),
+        'jtc': Component('jtc', ComponentType.CONTROLLER, LifecycleState.UNCONFIGURED)
+    })
+    goal = SystemGoal('active',
+                      hardware_goals=[Component('hw_arm', ComponentType.HARDWARE, LifecycleState.ACTIVE)],
+                      lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)],
+                      controller_goals=[Component('jtc', ComponentType.CONTROLLER, LifecycleState.ACTIVE)])
+
+    # Infrastructure steps up first (hw and lifecycle node interleaved)
+    transitions = []
+    for _ in range(10):
+        cmd = planner.get_next_transition(state, goal)
+        if cmd is None:
+            break
+        transitions.append((cmd.component.name, cmd.goal_state))
+        apply_command(state, cmd)
+
+    # Verify controller comes last (after all infrastructure is ACTIVE)
+    ctrl_indices = [i for i, (name, _) in enumerate(transitions) if name == 'jtc']
+    infra_indices = [i for i, (name, _) in enumerate(transitions) if name in ('hw_arm', 'robot_manager')]
+    assert all(c > max(infra_indices) for c in ctrl_indices)
+
+    # Verify we reached the goal
+    assert planner.get_next_transition(state, goal) is None

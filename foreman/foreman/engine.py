@@ -71,7 +71,7 @@ class ForemanEngine:
                 
             self._current_goal = goal
         
-        return ForemanResponse(True, f"{error_cleared_msg}Goal '{goal_name}' requested.")
+        return ForemanResponse(True, f"{error_cleared_msg}Goal '{goal_name}' accepted.")
     
     def abort_goal(self, error: ForemanError):
         """Aborts the current goal by stopping transitions."""
@@ -214,7 +214,7 @@ class ForemanEngine:
         """
         missing = []
         all_component_goals = (
-            target_goal.hardware_goals + target_goal.controller_goals
+            target_goal.hardware_goals + target_goal.controller_goals + target_goal.lifecycle_node_goals
         )
         
         for component_goal in all_component_goals:

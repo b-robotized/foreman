@@ -116,3 +116,78 @@ def test_set_system_state_unexpected_downgrade(minimal_foreman_config):
     
     # verify planner halts
     assert engine.get_next_transition() is None
+
+
+# --- Lifecycle Node Engine Tests ---
+
+@pytest.fixture
+def lifecycle_foreman_config():
+    goal = SystemGoal('active_goal',
+                      lifecycle_node_goals=[Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)])
+    return ParsedScenario(
+        controller_manager="test_cm",
+        transition_pause=0.0,
+        hardware=[],
+        dependency_rules=[],
+        goals={'active_goal': goal},
+        lifecycle_nodes=["robot_manager"]
+    )
+
+
+def test_goal_rejects_missing_lifecycle_node(lifecycle_foreman_config):
+    """Engine rejects goal if lifecycle node is not in observed state."""
+    lock = threading.Lock()
+    engine = ForemanEngine(lifecycle_foreman_config, lock)
+
+    # Only report hardware, no lifecycle node in state
+    engine.set_system_state([Component('some_hw', ComponentType.HARDWARE, LifecycleState.ACTIVE)])
+
+    response = engine.request_goal('active_goal')
+    assert response.success is False
+    assert 'robot_manager' in response.message
+
+
+def test_lifecycle_node_expected_transition(lifecycle_foreman_config):
+    """Engine accepts expected lifecycle node state change without error."""
+    lock = threading.Lock()
+    engine = ForemanEngine(lifecycle_foreman_config, lock)
+
+    initial = Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.UNCONFIGURED)
+    engine.set_system_state([initial])
+    engine.request_goal('active_goal')
+
+    # Planner issues a command
+    cmd = engine.get_next_transition()
+    assert cmd is not None
+    assert cmd.component.name == 'robot_manager'
+    assert cmd.goal_state == LifecycleState.INACTIVE
+
+    # Simulate expected state change
+    updated = Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.INACTIVE)
+    response = engine.set_system_state([updated])
+    assert response.success is True
+    assert response.error is None
+
+
+def test_unexpected_lifecycle_node_state_change(lifecycle_foreman_config):
+    """Engine detects unexpected lifecycle node state drop."""
+    lock = threading.Lock()
+    engine = ForemanEngine(lifecycle_foreman_config, lock)
+
+    # Start at goal
+    active = Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.ACTIVE)
+    engine.set_system_state([active])
+    engine.request_goal('active_goal')
+    assert engine.is_at_goal is True
+
+    # Simulate unprompted lifecycle node crash
+    crashed = Component('robot_manager', ComponentType.LIFECYCLE_NODE, LifecycleState.UNCONFIGURED)
+    response = engine.set_system_state([crashed])
+
+    assert response.success is False
+    assert response.error.category == ForemanErrorCategory.UNEXPECTED_STATE
+    assert 'robot_manager' in response.error.component_names
+
+    snapshot = engine.get_engine_snapshot()
+    assert snapshot['error']['is_error'] is True
+    assert snapshot['goal'] == 'None'

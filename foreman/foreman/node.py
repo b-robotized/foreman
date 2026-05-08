@@ -4,10 +4,10 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallb
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
-import foreman.adapters as Adapters
+from foreman import adapters
 from foreman.parser import parse_yaml_file
 from foreman.engine import ForemanEngine
-from foreman.types import ForemanError, ForemanErrorCategory
+from foreman.types import ComponentType, ForemanError, ForemanErrorCategory
 
 
 class ForemanNode(Node):
@@ -18,7 +18,7 @@ class ForemanNode(Node):
     def __init__(self):
         super().__init__('foreman_node')
 
-        self.state_lock = threading.Lock()
+        self.foreman_state_lock = threading.Lock()
         # for error handling ,so we know what and when failed and who to blame
         self._service_call_active_future = False
         self._active_transition = None 
@@ -26,38 +26,40 @@ class ForemanNode(Node):
 
         
         # CONFIG  =============================================
-        self.ros_parameter_adapter = Adapters.ROS.Parameters(node=self)
-        self.parameters = self.ros_parameter_adapter.load_parameters()
-        self.config = parse_yaml_file(self.parameters.config_path)
+        self.ros_node_parameters = adapters.RosNodeParameters(node=self)
+        self.foreman_parameters = self.ros_node_parameters.load_parameters()
+        self.foreman_config = parse_yaml_file(self.foreman_parameters.config_path)
 
         # CORE ENGINE  =============================================
-        self.engine = ForemanEngine(self.config, self.state_lock)
+        self.foreman_engine = ForemanEngine(self.foreman_config, self.foreman_state_lock)
 
-        # CONTROLLER MANAGER ADAPTERS ==============================
-        self.callback_group_services = MutuallyExclusiveCallbackGroup()
-        self.callback_group_subscriber = ReentrantCallbackGroup()
-        self.callback_group_timer = MutuallyExclusiveCallbackGroup()
+        # ADAPTERS ================================================
+        controller_manager_name = self.foreman_config.controller_manager
 
-        controller_manager_name = self.config.controller_manager
-
-        self.state_monitor = Adapters.ControllerManager.StateMonitor(
-            node=self, 
-            engine=self.engine,
-            controller_manager_name=controller_manager_name
+        self.component_state_monitor = adapters.ComponentStateMonitor(
+            node=self,
+            engine=self.foreman_engine,
+            controller_manager_name=controller_manager_name,
+            lifecycle_nodes=self.foreman_config.lifecycle_nodes
         )
-        self.service_caller = Adapters.ControllerManager.ServiceCaller(
+        self.controller_manager_service_caller = adapters.ControllerManagerServiceCaller(
             node=self,
             controller_manager_name=controller_manager_name
         )
+        self.lifecycle_node_service_caller = adapters.LifecycleNodeServiceCaller(
+            node=self,
+            lifecycle_nodes=self.foreman_config.lifecycle_nodes
+        )
 
-        # ADAPTERS TO THE REST OF ROS ==============================
-
-        self.set_goal_server = Adapters.ROS.SetGoalServer(
+        self.ros_set_goal_server = adapters.RosSetGoalServer(
             node=self, 
-            engine=self.engine
+            engine=self.foreman_engine
         )
 
         # MAIN LOOP ================================================
+        self.callback_group_services = MutuallyExclusiveCallbackGroup()
+        self.callback_group_subscriber = ReentrantCallbackGroup()
+        self.callback_group_timer = MutuallyExclusiveCallbackGroup()
 
         # RUN everything at 10HZ
         # TODO: Configure this?
@@ -69,9 +71,9 @@ class ForemanNode(Node):
         # TODO: Add pretty print of current state and read config?
         self.get_logger().info("Foreman Node initialized.")
 
-        # TEST DATALAYER - TEMPORARy, for now we guard until Datalayer is supported
-        if Adapters.Datalayer.AVAILABLE:
-            self.dl_adapter = Adapters.Datalayer.DatalayerAdapter()
+    ### TEST DATALAYER - TEMPORARy, for now we guard until Datalayer is supported
+        if adapters.DatalayerAdapter is not None:
+            self.datalayer_adapter = adapters.DatalayerAdapter()
             self.timer = self.create_timer(
                 2.0, 
                 self.test_datalayer_callback, 
@@ -79,14 +81,15 @@ class ForemanNode(Node):
             )
             self.get_logger().info("Datalayer adapter initialized.")
         else:
-            self.dl_adapter = None
             self.get_logger().info("Datalayer adapter not available.")
+            self.datalayer_adapter = None
         self.counter = 0
 
     def test_datalayer_callback(self):
         msg = f"Foreman Heartbeat: {self.counter}"
         self.dl_adapter.update_test_string(msg)
         self.counter += 1
+    ## END TEST DATALAYER
 
     def callback_main_loop(self):
         """Main loop."""
@@ -95,11 +98,18 @@ class ForemanNode(Node):
         if self._service_call_active_future and self._service_call_active_future.done():
             try:
                 result = self._service_call_active_future.result()
-                if not result.ok:
+
+                # ControllerManager services return a field "ok" while LifecycleNode services return "success". :/
+                if self._active_transition.component.component_type == ComponentType.LIFECYCLE_NODE:
+                    ok = result.success
+                else:
+                    ok = result.ok
+
+                if not ok:
                     comp_name = self._active_transition.component.name if self._active_transition else "unknown"
                     fault = ForemanError(
                         category=ForemanErrorCategory.EXECUTION,
-                        message="Controller manager rejected the transition.",
+                        message="Service rejected the transition.",
                         component_names=[comp_name]
                     )
                     self._log_and_abort_goal(fault)
@@ -116,23 +126,26 @@ class ForemanNode(Node):
                 self._active_transition = None
                 self.last_transition_time = self.get_clock().now()
 
-        # prevent concurrent service calls
+        # prevent concurrent service calls to components
         if self._service_call_active_future:
             return
         
         # throttle transitions by transition_pause
         time_since_last = (self.get_clock().now() - self.last_transition_time).nanoseconds / 1e9
-        if time_since_last < self.config.transition_pause:
+        if time_since_last < self.foreman_config.transition_pause:
             return
         
         # Ok, now we get next command
-        command = self.engine.get_next_transition()
+        command = self.foreman_engine.get_next_transition()
         if not command:
             return
 
         try:
             self._active_transition = command
-            self._service_call_active_future = self.service_caller.execute_transition(command)
+            if command.component.component_type == ComponentType.LIFECYCLE_NODE:
+                self._service_call_active_future = self.lifecycle_node_service_caller.execute_transition(command)
+            else:
+                self._service_call_active_future = self.controller_manager_service_caller.execute_transition(command)
         except Exception as e:
             fault = ForemanError(
                 category=ForemanErrorCategory.EXECUTION,
@@ -143,7 +156,7 @@ class ForemanNode(Node):
             self._active_transition = None
 
     def _log_and_abort_goal(self, fault: ForemanError):
-        self.engine.abort_goal(fault)
+        self.foreman_engine.abort_goal(fault)
         self.get_logger().error(f"[{fault.category.value}] {fault.message}. Failed components: {fault.component_names}")
 
 def main(args=None):

@@ -34,6 +34,7 @@ setup(
     entry_points={
         'console_scripts': [
             'foreman_node=foreman.node:main',
+            'dummy_lifecycle_node=foreman.dummy_lifecycle_node:main',
         ],
     },
 )

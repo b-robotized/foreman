@@ -29,25 +29,31 @@ class Planner:
         cmds_ctrl_activate = []
         cmds_ctrl_deactivate = []
 
-        # 1. Hardware Transitions
-        for hardware_goal in goal.hardware_goals:
-            hardware_component = current_state.components.get(hardware_goal.name)
+        # 1. "Infrastructure" Transitions (Hardware + Lifecycle Nodes) - nodes controllers depend upon
+        # This is an unfortunate name, but we're rolling with it for now.
+        # Later, when we implement a more complex ordering of components, we can lose
+        # this ordering of "hardware+lifecycle nodes first, controllers second".
+        # we'll probably build a DAG, so any component can depend on any other.
+        # For simplicity, this is it for now, bear with me that in "HardwareRequirements" for example
+        # we have hardware_interfaces AND lifecycle nodes.
+        infrastructure_goals = goal.hardware_goals + goal.lifecycle_node_goals
+        for infra_goal in infrastructure_goals:
+            infra_component = current_state.components.get(infra_goal.name)
 
-            if not hardware_component:
-                hardware_component = Component(
-                    hardware_goal.name,
-                    ComponentType.HARDWARE,
+            if not infra_component:
+                infra_component = Component(
+                    infra_goal.name,
+                    infra_goal.component_type,
                     LifecycleState.UNCONFIGURED
                 )
 
-            next_state = hardware_component.lifecycle_state.step_towards(hardware_goal.lifecycle_state)
+            next_state = infra_component.lifecycle_state.step_towards(infra_goal.lifecycle_state)
             if next_state:
-                if next_state < hardware_component.lifecycle_state:
-                    # block hardware step down if controllers are relying on it
-                    if not self._can_hardware_step_down(hardware_component.name, next_state, current_state):
-                        cmds_hw_step_down.append(SystemTransitionCommand(hardware_component, next_state))
+                if next_state < infra_component.lifecycle_state:
+                    if not self._can_hardware_step_down(infra_component.name, next_state, current_state):
+                        cmds_hw_step_down.append(SystemTransitionCommand(infra_component, next_state))
 
-                cmds_hw_step_up.append(SystemTransitionCommand(hardware_component, next_state))
+                cmds_hw_step_up.append(SystemTransitionCommand(infra_component, next_state))
 
         # 2. Controller Transitions
         for controller_goal in goal.controller_goals:

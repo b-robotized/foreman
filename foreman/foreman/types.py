@@ -40,6 +40,7 @@ class ForemanResponse:
 class ComponentType(Enum):
     HARDWARE = 'hardware'
     CONTROLLER = 'controller'
+    LIFECYCLE_NODE = 'lifecycle_node'
 
 
 class LifecycleState(Enum):
@@ -134,6 +135,7 @@ class SystemGoal:
     name: str
     hardware_goals: List[Component] = field(default_factory=list)
     controller_goals: List[Component] = field(default_factory=list)
+    lifecycle_node_goals: List[Component] = field(default_factory=list)
 
 
 @dataclass

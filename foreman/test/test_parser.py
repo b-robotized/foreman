@@ -15,7 +15,7 @@ from foreman.types import (
 @pytest.fixture
 def scenario_path():
     """Path to the scenario.yaml file."""
-    return Path(__file__).parent.parent / "foreman" / "config" / "scenario.yaml"
+    return Path(__file__).parent.parent / "config" / "scenario.yaml"
 
 
 @pytest.fixture
@@ -36,6 +36,9 @@ class TestParsedScenario:
     def test_hardware_list(self, parsed_scenario):
         assert parsed_scenario.hardware == ["FrankaHardwareInterface", "kassow"]
 
+    def test_lifecycle_nodes_list(self, parsed_scenario):
+        assert parsed_scenario.lifecycle_nodes == ["robot_manager"]
+
     def test_metadata_empty(self, parsed_scenario):
         assert parsed_scenario.metadata == {}
 
@@ -49,9 +52,9 @@ class TestDependencyRules:
     def test_joint_state_broadcaster_rule_expands_all(self, parsed_scenario):
         rule = next(r for r in parsed_scenario.dependency_rules if r.controller_name == "joint_state_broadcaster")
         assert rule.controller_name == "joint_state_broadcaster"
-        assert len(rule.required_hardware) == 2
+        assert len(rule.required_hardware) == 3
         hw_names = {req.name for req in rule.required_hardware}
-        assert hw_names == {"FrankaHardwareInterface", "kassow"}
+        assert hw_names == {"FrankaHardwareInterface", "kassow", "robot_manager"}
         for req in rule.required_hardware:
             assert req.state == LifecycleState.INACTIVE
 
@@ -92,6 +95,10 @@ class TestGoalStates:
         for ctrl in goal.controller_goals:
             assert ctrl.lifecycle_state == LifecycleState.INACTIVE
 
+        assert len(goal.lifecycle_node_goals) == 1
+        assert goal.lifecycle_node_goals[0].name == "robot_manager"
+        assert goal.lifecycle_node_goals[0].lifecycle_state == LifecycleState.INACTIVE
+
     def test_broadcast_only_goal(self, parsed_scenario):
         goal = parsed_scenario.goals["broadcast_only"]
         assert goal.name == "broadcast_only"
@@ -123,3 +130,5 @@ class TestGoalStates:
             assert hw.component_type == ComponentType.HARDWARE
         for ctrl in idle.controller_goals:
             assert ctrl.component_type == ComponentType.CONTROLLER
+        for lc in idle.lifecycle_node_goals:
+            assert lc.component_type == ComponentType.LIFECYCLE_NODE

@@ -6,9 +6,15 @@ hardware:
   - FrankaHardwareInterface
   - kassow
 
+lifecycle_nodes:
+  - dummy_lifecycle_node
+
 controllers:
   joint_state_broadcaster:
-    requires: [all, inactive]
+    requires: 
+      - [kassow, inactive]
+      - [FrankaHardwareInterface, inactive]
+      - [dummy_lifecycle_node, active]
   kassow_joint_trajectory_controller:
     requires: [kassow, active]
   franka_joint_trajectory_controller:
@@ -24,6 +30,8 @@ goal_states:
     hardware:
       FrankaHardwareInterface: inactive
       kassow: inactive
+    lifecycle_nodes:
+      dummy_lifecycle_node: inactive
 
   broadcast_only:
     controllers:
@@ -33,6 +41,8 @@ goal_states:
     hardware:
       FrankaHardwareInterface: active
       kassow: active
+    lifecycle_nodes:
+      dummy_lifecycle_node: active
 
   running:
     controllers:
@@ -42,3 +52,5 @@ goal_states:
     hardware:
       FrankaHardwareInterface: active
       kassow: active
+    lifecycle_nodes:
+      dummy_lifecycle_node: active
