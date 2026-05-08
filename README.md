@@ -1,6 +1,6 @@
 # Foreman
 
-***Note: Still under active development! For example, config path is hardcoded in `foreman/node.py`.***
+***Note: Still under active development!***
 
 ros2_control component lifecycle manager for easier brinup.
 
@@ -14,6 +14,9 @@ It takes a named group of component lifecycle states (a system state) in `config
 controller_manager: my_controller_manager
 transition_pause: 0.5
 
+lifecycle_nodes:
+  - my_node
+
 hardware:
   - franka
   - kassow
@@ -22,7 +25,9 @@ controllers:
   joint_state_broadcaster:
     requires: [all, inactive]
   kassow_joint_trajectory_controller:
-    requires: [kassow, active]
+    requires: 
+      - [kassow, active]
+      - [my_node, active]
   franka_joint_trajectory_controller:
     requires: [franka, active]
 
@@ -36,6 +41,8 @@ goal_states:
     hardware:
       franka: inactive
       kassow: inactive
+    lifecycle_nodes:
+      my_node: active
   
   # ... more named states
 ```
@@ -43,7 +50,7 @@ goal_states:
 ### 2. Run the node
 
 ```bash
-ros2 run foreman foreman_node
+ros2 run foreman foreman_node --ros-args -p config_path:=/path/to/scenario.yaml
 ```
 
 ### 3. Set the goal
@@ -72,10 +79,8 @@ Check `node.py` how we glue it all up into a ros executable and run it.
     - just take snapshot of the component states and output next state.
 
 - **Adapters**
-    - to `controller_manager`:
-        - `StateMonitor`: parse `/activity` into system state
-        - `ServiceCaller`: triggers `controller_manager` services based on planner output
-    - to `ROS`:
-        - `SetGoalServer`: exposes a ROS service to set goal state
-    - to `Datalayer`
-        - `DatalayerClient`: **To be added**, listens to Datalayer events to set goal state
+    - `ComponentStateMonitor` (inbound): Subscribes to `cm/activity` for HW + controllers. Monitors lifecycle nodes via `/node/transition_event` subscription with QoS matched event for discovery/death detection.
+    - `ControllerManagerServiceCaller` (outbound): Calls `controller_manager` services.
+    - `LifecycleNodeServiceCaller` (outbound): Calls `/node/change_state` for lifecycle node transitions.
+    - `RosSetGoalServer` (inbound): Exposes `/foreman/set_goal` service.
+    - `DatalayerAdapter` (outbound): ctrlX Datalayer integration (optional, to be added).
