@@ -2,20 +2,19 @@ import os
 import ctrlxdatalayer
 from ctrlxdatalayer.variant import Variant, Result
 from ctrlxdatalayer.provider_node import ProviderNodeCallbacks, ProviderNode, NodeCallback
-from ctrlxdatalayer.metadata_utils import MetadataBuilder, AllowedOperation, ReferenceType
-from comm.datalayer import NodeClass
+from ctrlxdatalayer.provider import Provider
 
 class SimpleStringNode:
     """A minimal ctrlX Data Layer provider node holding a string."""
     
-    def __init__(self, provider, address: str, initial_value: str):
-        self._provider = provider
-        self._address = address
+    def __init__(self, provider: Provider, address: str, initial_value: str):
+        self.provider = provider
+        self.address = address
         
-        self._data = Variant()
-        self._data.set_string(initial_value)
+        self.data = Variant()
+        self.data.set_string(initial_value)
 
-        self._cbs = ProviderNodeCallbacks(
+        self.cbs = ProviderNodeCallbacks(
             self.__on_create,
             self.__on_remove,
             self.__on_browse,
@@ -23,25 +22,19 @@ class SimpleStringNode:
             self.__on_write,
             self.__on_metadata,
         )
-        self._provider_node = ProviderNode(self._cbs)
-
-        builder = MetadataBuilder(allowed=AllowedOperation.READ | AllowedOperation.WRITE)
-        builder = builder.set_display_name(self._address)
-        builder = builder.set_node_class(NodeClass.NodeClass.Variable)
-        builder.add_reference(ReferenceType.ReferenceType.read, "types/datalayer/string")
-        builder.add_reference(ReferenceType.ReferenceType.write, "types/datalayer/string")
-        self._metadata = builder.build()
+        self.provider_node = ProviderNode(self.cbs)
 
     def register(self) -> Result:
-        return self._provider.register_node(self._address, self._provider_node)
+        """Register the node with the Data Layer."""
+        return self.provider.register_node(self.address, self.provider_node)
 
     def unregister(self):
-        self._provider.unregister_node(self._address)
-        self._metadata.close()
-        self._data.close()
+        """Unregister the node from the Data Layer."""
+        self.provider.unregister_node(self.address)
 
     def set_value(self, new_value: str):
-        self._data.set_string(new_value)
+        """Update the value exposed to the Data Layer."""
+        self.data.set_string(new_value)
 
     # --- Callbacks ---
     def __on_create(self, userdata, address: str, data: Variant, cb: NodeCallback):
@@ -51,22 +44,23 @@ class SimpleStringNode:
         cb(Result.UNSUPPORTED, None)
 
     def __on_browse(self, userdata, address: str, cb: NodeCallback):
-        with Variant() as new_data:
-            new_data.set_array_string([])
-            cb(Result.OK, new_data)
+        new_data = Variant()
+        new_data.set_array_string([])
+        cb(Result.OK, new_data)
 
     def __on_read(self, userdata, address: str, data: Variant, cb: NodeCallback):
-        cb(Result.OK, self._data)
+        cb(Result.OK, self.data)
 
     def __on_write(self, userdata, address: str, data: Variant, cb: NodeCallback):
-        if self._data.get_type() != data.get_type():
+        if self.data.get_type() != data.get_type():
             cb(Result.TYPE_MISMATCH, None)
             return
-        _, self._data = data.clone()
-        cb(Result.OK, self._data)
+        
+        _, self.data = data.clone()
+        cb(Result.OK, self.data)
 
     def __on_metadata(self, userdata, address: str, cb: NodeCallback):
-        cb(Result.OK, self._metadata)
+        cb(Result.FAILED, None)
 
 
 class DatalayerAdapter:
@@ -77,24 +71,30 @@ class DatalayerAdapter:
         self.node_path = "foreman/test_string"
 
     def start(self):
+        """Start the provider and register the node."""
         self.system = ctrlxdatalayer.system.System("")
         self.system.start(False)
 
+        # Environment detection logic
         conn_string = "ipc://" if 'SNAP' in os.environ else "tcp://boschrexroth:boschrexroth@192.168.1.1"
         self.provider = self.system.factory().create_provider(conn_string)
         
         if self.provider.start() != Result.OK:
-            print("Failed to start Provider!")
+            print("Failed to start ctrlX Provider!")
             return False
 
         if not self.provider.is_connected():
-            print("Provider not connected!")
+            print("ctrlX Provider not connected!")
             return False
 
         self.node = SimpleStringNode(self.provider, self.node_path, "Initial Foreman Value")
         result = self.node.register()
-        print(f"Registered node '{self.node_path}' with result: {result}")
         
+        if result != Result.OK:
+            print(f"Failed to register node '{self.node_path}'. Result: {result}")
+            return False
+            
+        print(f"Registered node '{self.node_path}' successfully.")
         return True
 
     def update_test_string(self, new_value: str):
@@ -103,9 +103,16 @@ class DatalayerAdapter:
             self.node.set_value(new_value)
 
     def stop(self):
+        """Safely stop and clean up. Must be called explicitly."""
+        print("Stopping Datalayer adapter...")
         if self.node:
             self.node.unregister()
+            self.node = None
         if self.provider:
             self.provider.stop()
+            self.provider.close()
+            self.provider = None
         if self.system:
             self.system.stop(False)
+            self.system = None
+        print("Datalayer adapter successfully stopped.")

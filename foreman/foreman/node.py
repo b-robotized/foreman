@@ -1,4 +1,6 @@
 import threading
+import sys
+
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -80,6 +82,7 @@ class ForemanNode(Node):
                 callback_group=self.callback_group_subscriber
             )
             self.get_logger().info("Datalayer adapter initialized.")
+            self.datalayer_adapter.start()
         else:
             self.get_logger().info("Datalayer adapter not available.")
             self.datalayer_adapter = None
@@ -87,7 +90,7 @@ class ForemanNode(Node):
 
     def test_datalayer_callback(self):
         msg = f"Foreman Heartbeat: {self.counter}"
-        self.dl_adapter.update_test_string(msg)
+        self.datalayer_adapter.update_test_string(msg)
         self.counter += 1
     ## END TEST DATALAYER
 
@@ -159,6 +162,18 @@ class ForemanNode(Node):
         self.foreman_engine.abort_goal(fault)
         self.get_logger().error(f"[{fault.category.value}] {fault.message}. Failed components: {fault.component_names}")
 
+    def destroy_node(self):
+        """Safely stop adapters when shutting down node"""
+        self.get_logger().info("Shutting down adapters...")
+
+        if self.datalayer_adapter:
+            try:
+                self.datalayer_adapter.stop()
+            except Exception as e:
+                self.get_logger().error(f"Failed to stop datalayer adapter: {e}")
+        
+        super().destroy_node()
+
 def main(args=None):
     rclpy.init(args=args)
     
@@ -177,8 +192,10 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        if node:
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
