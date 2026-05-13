@@ -12,7 +12,10 @@ from foreman.types import (
     SystemGoal,
     ForemanError,
     ForemanResponse,
-    ForemanErrorCategory
+    ForemanErrorCategory,
+    ErrorSnapshot,
+    ComponentSnapshot,
+    ForemanSnapshot
 )
 
 class ForemanEngine:
@@ -183,26 +186,26 @@ class ForemanEngine:
         """Is the system observed and ready to plan?"""
         return self._is_ready
 
-    def get_engine_snapshot(self) -> dict:
+    def get_engine_snapshot(self) -> ForemanSnapshot:
         """
-        Returns a simplified snapshot of the system.
+        Returns a simplified snapshot of the system state.
         """
         with self._state_lock:
-            return {
-                "goal": self.current_goal_name,
-                "ready": self._is_ready,
-                "at_goal": self._locked_is_at_goal(),
-                "error": {
-                    "is_error": self._error_state is not None,
-                    "category": self._error_state.category.value if self._error_state else ForemanErrorCategory.NONE.value,
-                    "message": self._error_state.message if self._error_state else "",
-                    "components": self._error_state.component_names if self._error_state else []
-                },
-                "components": {
-                    name: comp.lifecycle_state.name 
+             return ForemanSnapshot(
+                goal=self.current_goal_name,
+                ready=self._is_ready,
+                at_goal=self._locked_is_at_goal(),
+                error=ErrorSnapshot(
+                    is_error=self._error_state is not None,
+                    category=self._error_state.category.value if self._error_state else ForemanErrorCategory.NONE.value,
+                    message=self._error_state.message if self._error_state else "",
+                    components=self._error_state.component_names if self._error_state else []
+                ),
+                components=[
+                    ComponentSnapshot(name=name, state=comp.lifecycle_state.name)
                     for name, comp in self._state.components.items()
-                }
-            }
+                ]
+            )
 
     def _locked_is_at_goal(self) -> bool:
         """

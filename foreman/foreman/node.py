@@ -73,26 +73,17 @@ class ForemanNode(Node):
         # TODO: Add pretty print of current state and read config?
         self.get_logger().info("Foreman Node initialized.")
 
-    ### TEST DATALAYER - TEMPORARy, for now we guard until Datalayer is supported
-        if adapters.DatalayerAdapter is not None:
-            self.datalayer_adapter = adapters.DatalayerAdapter()
-            self.timer = self.create_timer(
-                2.0, 
-                self.test_datalayer_callback, 
-                callback_group=self.callback_group_subscriber
-            )
+        # If available, start the datalayer adapter
+        datalayer_available = True if adapters.DatalayerAdapter else None
+        if datalayer_available:
+            self.datalayer_adapter = adapters.DatalayerAdapter(ros_logger=self.get_logger(), engine=self.foreman_engine)
             self.get_logger().info("Datalayer adapter initialized.")
-            self.datalayer_adapter.start()
-        else:
+            datalayer_available = self.datalayer_adapter.start()
+
+        if not datalayer_available:
             self.get_logger().info("Datalayer adapter not available.")
             self.datalayer_adapter = None
         self.counter = 0
-
-    def test_datalayer_callback(self):
-        msg = f"Foreman Heartbeat: {self.counter}"
-        self.datalayer_adapter.update_test_string(msg)
-        self.counter += 1
-    ## END TEST DATALAYER
 
     def callback_main_loop(self):
         """Main loop."""

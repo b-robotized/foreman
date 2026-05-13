@@ -13,6 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (f'share/{package_name}/launch', glob('launch/*.launch.xml')),
         (f'share/{package_name}/config', glob('config/*.yaml')),
+        (f'share/{package_name}/flatbuffers', glob('foreman/adapters/datalayer/*.bfbs')),
     ],
     install_requires=[
         'setuptools',

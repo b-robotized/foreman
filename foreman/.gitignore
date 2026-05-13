@@ -5,3 +5,5 @@ assets/
 **/snap/build/
 **/snap/log/
 **/foreman_snap_install/
+**/fbs/
+*.bfbs

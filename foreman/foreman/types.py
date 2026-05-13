@@ -148,3 +148,24 @@ class SystemTransitionCommand:
     def __repr__(self):
         c_type = self.component.component_type.value
         return f"TransitionCommand({c_type} '{self.component.name}' -> {self.goal_state.name})"
+
+# System snapshot, mimics flatbuffer schema
+@dataclass
+class ErrorSnapshot:
+    is_error: bool
+    category: str
+    message: str
+    components: List[str]
+
+@dataclass
+class ComponentSnapshot:
+    name: str
+    state: str
+
+@dataclass
+class ForemanSnapshot:
+    goal: str
+    ready: bool
+    at_goal: bool
+    error: ErrorSnapshot
+    components: List[ComponentSnapshot]

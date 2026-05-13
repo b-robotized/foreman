@@ -1,12 +1,20 @@
 #!/bin/bash
 set -e
 
-# --- Base Snap Approach Environment Setup ---
-# Because we removed the ROS 2 snapcraft extension, we must manually 
-# set up the paths to point to the mounted Rexroth base snap.
+while ! snapctl is-connected active-solution
+do
+  sleep 1
+done
+
+while ! snapctl is-connected ros-base
+do
+  sleep 1
+done
+
+# Path setup
+# We're connection to ros-jazzy base snap for runtime information
 export ROS_BASE=$SNAP/rosruntime
 
-# Export python and lib paths linked to the base snap
 export PYTHONPATH=$PYTHONPATH:$ROS_BASE/lib/python3.12/site-packages
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROS_BASE/lib
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROS_BASE/usr/lib
@@ -15,16 +23,11 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$ROS_BASE/usr/lib/x86_64-linux-gnu/
 export PATH=${PATH}:${ROS_BASE}/opt/ros/jazzy/bin
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${ROS_BASE}/opt/ros/jazzy/lib
 
-# Source the ROS 2 setup from the base snap
 source $ROS_BASE/opt/ros/jazzy/setup.bash
-# Source the local setup dumped from the colcon install directory
+# source install dir we dumped from building the foreman packages
 source $SNAP/local_setup.bash
 
-while ! snapctl is-connected active-solution
-do
-  sleep 5
-done
-
+# env file setup
 CONFIG_DIR="$SNAP_COMMON/solutions/activeConfiguration/foreman"
 ENV_FILE="$CONFIG_DIR/foreman.env"
 DEFAULT_ENV_FILE="$SNAP/etc/foreman.default.env"
@@ -39,7 +42,7 @@ source "$ENV_FILE"
 
 echo "Loading configuration from $ENV_FILE"
 
-# Config file setup
+# config file setup
 CONFIG_FILE="$CONFIG_DIR/scenario.yaml"
 DEFAULT_CONFIG="$SNAP/share/foreman/config/scenario.yaml"
 
