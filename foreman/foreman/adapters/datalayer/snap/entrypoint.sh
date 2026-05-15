@@ -44,7 +44,7 @@ echo "Loading configuration from $ENV_FILE"
 
 # config file setup
 CONFIG_FILE="$CONFIG_DIR/scenario.yaml"
-DEFAULT_CONFIG="$SNAP/share/foreman/config/scenario.yaml"
+DEFAULT_CONFIG="$SNAP/foreman/share/foreman/config/scenario.yaml"
 
 mkdir -p "$CONFIG_DIR"
 
