@@ -5,8 +5,10 @@ from .ros_set_goal_server import RosSetGoalServer
 from .ros_node_parameters import RosNodeParameters
 
 try:
-    from .datalayer.datalayer import DatalayerAdapter
+    from .datalayer.datalayer_adapter import DatalayerAdapter
 except ImportError:
+    import sys
+    print(f"[DATALAYER IMPORT FAILED] {e}", file=sys.stderr)
     DatalayerAdapter = None
 
 __all__ = [

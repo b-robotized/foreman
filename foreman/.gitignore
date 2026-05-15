@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 assets/
 *.snap
+**/snap/build/
+**/snap/log/
+**/foreman_snap_install/
+**/fbs/
+*.bfbs
